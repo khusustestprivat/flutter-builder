@@ -1,0 +1,134 @@
+name: Web to APK
+on:
+  workflow_dispatch:
+    inputs:
+      web_url:
+        description: 'URL Website'
+        required: true
+        type: string
+      app_name:
+        description: 'Nama Aplikasi'
+        required: true
+        type: string
+      icon_url:
+        description: 'URL Icon'
+        required: true
+        type: string
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: 'stable'
+      - name: Create Flutter Web Project
+        run: |
+          flutter create --project-name webapp --org com.lavender web_app
+          cd web_app
+          rm -rf lib/*
+          rm -rf web/*
+      - name: Download and setup icon
+        run: |
+          cd web_app
+          mkdir -p assets/icons
+          wget -O assets/icons/icon.png "${{ github.event.inputs.icon_url }}"
+      - name: Create web/index.html
+        working-directory: ./web_app
+        run: |
+          mkdir -p web
+          cat > web/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>${{ github.event.inputs.app_name }}</title>
+              <style>
+                body { margin: 0; overflow: hidden; }
+                iframe { width: 100vw; height: 100vh; border: none; }
+              </style>
+            </head>
+            <body>
+              <iframe src="${{ github.event.inputs.web_url }}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+            </body>
+          </html>
+          EOF
+      - name: Create main.dart
+        working-directory: ./web_app
+        run: |
+          cat > lib/main.dart << 'EOF'
+          import 'package:flutter/material.dart';
+          import 'package:webview_flutter/webview_flutter.dart';
+
+          void main() => runApp(MyApp());
+
+          class MyApp extends StatelessWidget {
+            @override
+            Widget build(BuildContext context) {
+              return MaterialApp(
+                title: '${{ github.event.inputs.app_name }}',
+                theme: ThemeData(primarySwatch: Colors.blue),
+                home: WebViewScreen(),
+                debugShowCheckedModeBanner: false,
+              );
+            }
+          }
+
+          class WebViewScreen extends StatefulWidget {
+            @override
+            _WebViewScreenState createState() => _WebViewScreenState();
+          }
+
+          class _WebViewScreenState extends State<WebViewScreen> {
+            late final WebViewController controller;
+
+            @override
+            void initState() {
+              super.initState();
+              controller = WebViewController()
+                ..setJavaScriptMode(JavaScriptMode.unrestricted)
+                ..loadRequest(Uri.parse('${{ github.event.inputs.web_url }}'));
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              return Scaffold(
+                body: WebViewWidget(controller: controller),
+              );
+            }
+          }
+          EOF
+      - name: Update pubspec.yaml
+        working-directory: ./web_app
+        run: |
+          cat >> pubspec.yaml << 'EOF'
+          dependencies:
+            flutter:
+              sdk: flutter
+            webview_flutter: ^4.10.0
+          flutter:
+            uses-material-design: true
+            assets:
+              - assets/icons/
+          EOF
+          flutter pub get
+      - name: Build Android APK
+        working-directory: ./web_app
+        run: |
+          flutter clean
+          flutter build apk --release --no-tree-shake-icons
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: web2apk
+          path: web_app/build/app/outputs/flutter-apk/app-release.apk
