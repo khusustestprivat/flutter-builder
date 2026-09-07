@@ -1,0 +1,46 @@
+name: Debug Build APK
+on:
+  workflow_dispatch:
+    inputs:
+      release_url:
+        description: 'URL Release GitHub (ZIP file)'
+        required: true
+        type: string
+      tag:
+        description: 'Tag untuk release'
+        required: true
+        type: string
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: 'stable'
+      - name: Download source code
+        run: |
+          echo "Downloading from ${{ github.event.inputs.release_url }}"
+          wget -O project.zip "${{ github.event.inputs.release_url }}"
+          unzip -o project.zip -d project/
+          ls -la project/
+      - name: Build Debug APK
+        working-directory: ./project
+        run: |
+          flutter pub get
+          flutter clean
+          flutter build apk --debug --no-tree-shake-icons
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk
+          path: project/build/app/outputs/flutter-apk/app-debug.apk
